@@ -22,32 +22,16 @@ class State:
         self.NUM_RESOURCES = num_resources
 
         self.resource_constraints = []
+        self.user_constraints = []
+
         self.resources = [
             [Real(f"resource[t = {t}][j = {j}]") for j in range(num_resources)]
             for t in range(num_timesteps)
         ]
-        for t, resources_at_t in enumerate(self.resources):
-            for resource in resources_at_t:
-                resource_lim = (
-                    resource == 1.0
-                    if (t == 0)
-                    else And(0.0 <= resource, resource <= 1.0)
-                )
-                self.resource_constraints.append(resource_lim)
-
-        self.user_constraints = []
-
-        "alpha_i = number of times apply user_i demand vector"
         self.user_alphas = [
             [Int(f"alpha[t = {t}][i = {i}]") for i in range(num_users)]
             for t in range(num_timesteps)
         ]
-        for t, user_alphas_at_t in enumerate(self.user_alphas):
-            for alpha_i in user_alphas_at_t:
-                self.user_constraints.append(
-                    (alpha_i == 0) if (t == 0) else (0 <= alpha_i)
-                )
-
         self.user_demands = [
             [
                 Real(f"demand[userId = {i}][resource = {j}]")
@@ -56,10 +40,9 @@ class State:
             for i in range(num_users)
         ]
 
-        for user_id, demand_vector in enumerate(self.user_demands):
-            for demand in demand_vector:
-                # no zero demand allowed
-                self.user_constraints.append(And(0.0 < demand, demand <= 1.0))
+        self.init_resource_constraints()
+        self.init_user_alloc_constraints()
+        self.init_user_demand_constraints()
 
         # TODO: fill in scaled demand_vectors based on dominant shares
         self.normalized_demands = []
@@ -69,6 +52,29 @@ class State:
         # TODO: fill in state transition constraints
 
         # TODO: maybe not required: Add constraint that sum_{i in [n]} (alpha_i * D_i) <= R
+
+    def init_resource_constraints(self):
+        for t, resources_at_t in enumerate(self.resources):
+            for resource in resources_at_t:
+                resource_lim = (
+                    resource == 1.0
+                    if (t == 0)
+                    else And(0.0 <= resource, resource <= 1.0)
+                )
+                self.resource_constraints.append(resource_lim)
+
+    def init_user_alloc_constraints(self):
+        for t, user_alphas_at_t in enumerate(self.user_alphas):
+            for alpha_i in user_alphas_at_t:
+                self.user_constraints.append(
+                    (alpha_i == 0) if (t == 0) else (0 <= alpha_i)
+                )
+
+    def init_user_demand_constraints(self):
+        for user_id, demand_vector in enumerate(self.user_demands):
+            for demand in demand_vector:
+                # no zero demand allowed
+                self.user_constraints.append(And(0.0 < demand, demand <= 1.0))
 
 
 """
