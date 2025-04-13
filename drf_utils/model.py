@@ -15,33 +15,46 @@ class Timestep:
         return Timestep(self.t + 1)
 
 
-class Resource:
-    """
-    Per resource variables and constraints
-    """
+class State:
+    def __init__(self, num_timesteps, num_users, num_resources):
+        self.NUM_TIMESTEPS = num_timesteps
+        self.NUM_USERS = num_users
+        self.NUM_RESOURCES = num_resources
 
-    def __init__(self, id: int, num_timesteps: int):
-        self.constraints = []
-        self.resourceId = id
-
-        self.allocations = [
-            Real(f"resource[{self.resourceId}].alloc[{i}]")
-            for i in range(num_timesteps + 1)
+        self.resource_constraints = []
+        self.resources = [
+            [Real(f"resource[t = {t}][j = {j}]") for j in range(num_resources)]
+            for t in range(num_timesteps)
         ]
+        for t, resources_at_t in enumerate(self.resources):
+            for resource in resources_at_t:
+                resource_lim = (
+                    resource == 1.0
+                    if (t == 0)
+                    else And(0.0 <= resource, resource <= 1.0)
+                )
+                self.resource_constraints.append(resource_lim)
 
-        for i, stage_alloc in enumerate(self.allocations):
-            self.constraints.append(And(0.0 <= stage_alloc, stage_alloc <= 1.0))
-            if i == 0:
-                self.constraints.append(stage_alloc == 1.0)
+        self.user_constraints = []
+
+        "alpha_i = number of times apply user_i demand vector"
+        self.user_alphas = [
+            [Int(f"alpha[t = {t}][i = {i}]") for i in range(num_users)]
+            for t in range(num_timesteps)
+        ]
+        for t, user_alphas_at_t in enumerate(self.user_alphas):
+            for alpha_i in user_alphas_at_t:
+                self.user_constraints.append(
+                    (alpha_i == 0) if (t == 0) else (0 <= alpha_i)
+                )
 
 
-class User:
+"""
+state:
+Time-invariant: 
+    * User.demands: (n x m) ... d_i in [0,1]
+Change with time:
+    * resource[t]: 1 --> 0 ... should be mono decreasing
+    * User.Allocations[t][userId]
 
-    def __init__(self, id, num_timesteps, demand_vector):
-        self.userId = id
-
-    def __repr__(self):
-        return str(self.userId)
-
-    # return constaints on user at timestep i
-    def update_state(self, T): ...
+"""

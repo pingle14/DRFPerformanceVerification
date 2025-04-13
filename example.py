@@ -38,6 +38,18 @@ def continue_allocating(s : Solver):
         T = T.next()
     return constraints
 
+    
+def DRF_Algorithm(state):
+    dominant_shares = get_user_domenant_shares(state)
+    user_indx = argmin(dominant_shares)
+    user_demands = state.demand[user_indx]
+
+    # update state
+    if state.consumed + user_demands <= state.resources:
+        state.consumed += user_demands
+        state.user_alloc[user_indx] += 1
+
+    return state
 
 """
 
@@ -49,21 +61,18 @@ def drf_algorithm_constraints(T, s):
 def all_allocations(s: Solver):
     constraints = []
     T = Timestep(0)
-    while T.t < cfg.NUM_TIMESTEPS:
+    while T.t < st.NUM_TIMESTEPS:
         constraints.extend(drf_algorithm_constraints(T, s))
         T = T.next()
     return constraints
 
 
-cfg = Config()
-
-resources = [Resource(i, cfg.NUM_TIMESTEPS) for i in range(cfg.NUM_RESOURCES)]
-users = [User(i, cfg.NUM_TIMESTEPS, [0, 1]) for i in range(cfg.NUM_USERS)]
+st = State(5, 2, 2)
 s = Solver()
 
 print("Adding Constraints")
-for resource in resources:
-    s.add(resource.constraints)
+s.add(st.resource_constraints)
+s.add(st.user_constraints)
 s.add(all_allocations(s))
 
 print("Checking")
@@ -77,5 +86,3 @@ if res == sat:
         for e in l:
             print(e)
             f.write(str(e) + "\n")
-else:
-    print("PASSED")
