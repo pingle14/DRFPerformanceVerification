@@ -67,12 +67,11 @@ def all_allocations(s: Solver):
     return constraints
 
 
-st = State(5, 2, 2)
+st = State(5, 3, 1)
 s = Solver()
 
 print("Adding Constraints")
-s.add(st.resource_constraints)
-s.add(st.user_constraints)
+s.add(st.constraints)
 s.add(all_allocations(s))
 
 print("Checking")
