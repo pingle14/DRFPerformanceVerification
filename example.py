@@ -117,7 +117,9 @@ def all_allocations(state: State):
 
 
 st = State(5, 2, 2)
+st.add_initial_state()
 s = Solver()
+
 
 print("Adding Constraints")
 s.add(st.constraints)

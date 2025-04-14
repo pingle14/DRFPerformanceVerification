@@ -125,6 +125,17 @@ class State:
                 self.demand_constraints.append(consumed == consumed_expr)
                 self.demand_constraints.append(consumed <= 1.0)
 
+    def add_initial_state(self, user_demands=[["1/9", "4 / 18"], ["3 / 9", "1 / 18"]]):
+        assert self.NUM_USERS >= len(user_demands) and self.NUM_RESOURCES == len(
+            user_demands[0]
+        )
+        self.constraints.append(self.epsilon == RealVal("1/3"))
+        #  and state.NUM_RESOURCES >= len(user_demands[0])
+        for i in range(self.NUM_USERS):
+            for j in range(self.NUM_RESOURCES):
+                demand_val = RealVal(user_demands[i][j])  # Force to be real
+                self.constraints.append(self.user_demands[i][j] == demand_val)
+
 
 """
 state:
