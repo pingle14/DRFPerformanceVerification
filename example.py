@@ -54,25 +54,74 @@ def DRF_Algorithm(state):
 """
 
 
-def drf_algorithm_constraints(T, s):
-    return []
+def drf_algorithm_constraints(T, state: State):
+    state_transition_constraints = []
+    t = T.t
+    # TODO: Check if correct: Pick the min dom share user: user with min alpha_i[t]
+    chosen_user = Int(f"chosen_user[t = {t}]")
+    state_transition_constraints.append(
+        And(chosen_user >= 0, chosen_user < state.NUM_USERS)
+    )
+
+    # Add the constraints for all users (compared to min_share)
+    for i in range(state.NUM_USERS):
+        current_share = state.user_alphas[t][i] * state.dominant_shares[i]
+        comparisons = [
+            current_share <= state.user_alphas[t][i2] * state.dominant_shares[i2]
+            for i2 in range(state.NUM_USERS)
+        ]
+        Implies(
+            chosen_user == i,
+            And(*comparisons),
+        )
+
+    # TODO: alpha_i[t+1] =  (alpha_i[t] + 1) d_i <= 1 ? (alpha_i[t] + 1) : alpha_i[t]
+    condition = True
+    for j in range(state.NUM_RESOURCES):
+        consumed_expr = sum(
+            If(
+                chosen_user == i,  # If user i is the chosen user
+                state.user_alphas[t][i] + 1,  # allocat this user
+                state.user_alphas[t][i],  # Otherwise, stay same
+            )
+            * state.normalized_demands[i][j]
+            for i in range(state.NUM_USERS)
+        )
+
+        # Combine the constraints w And
+        condition = And(condition, consumed_expr <= 1.0)
+
+    for i in range(state.NUM_USERS):
+        state_transition_constraints.append(
+            Implies(
+                chosen_user == i,  # Apply only when chosen_user == i
+                state.user_alphas[t + 1][i]
+                == If(
+                    condition,
+                    state.user_alphas[t][i] + 1,
+                    state.user_alphas[t][i],
+                ),
+            )
+        )
+    return state_transition_constraints
 
 
-def all_allocations(s: Solver):
+def all_allocations(state: State):
     constraints = []
     T = Timestep(0)
-    while T.t < st.NUM_TIMESTEPS:
-        constraints.extend(drf_algorithm_constraints(T, s))
+    while T.t < state.NUM_TIMESTEPS:
+        print(f"*** attempting t = {T.t}")
+        constraints.extend(drf_algorithm_constraints(T, state))
         T = T.next()
     return constraints
 
 
-st = State(5, 3, 1)
+st = State(5, 2, 2)
 s = Solver()
 
 print("Adding Constraints")
 s.add(st.constraints)
-s.add(all_allocations(s))
+s.add(all_allocations(st))
 
 print("Checking")
 res = s.check()

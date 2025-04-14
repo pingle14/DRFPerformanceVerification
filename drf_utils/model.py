@@ -30,9 +30,8 @@ class State:
         self.init_user_alloc_constraints()
         self.init_user_demand_constraints()
 
-        # TODO: fill in state transition constraints
-
-        # TODO: maybe not required: Add constraint that sum_{i in [n]} (alpha_i * D_i) <= R
+        # TODO: maybe not required: Add constraint that sum_{i in [n]} (alpha_i * D_i) <= 1
+        self.no_overallocation_constraints()
 
         self.constraints = []
         self.constraints.extend(self.demand_constraints)
@@ -43,7 +42,7 @@ class State:
     def init_resource_constraints(self):
         self.resources = [
             [Real(f"resource[t = {t}][j = {j}]") for j in range(self.NUM_RESOURCES)]
-            for t in range(self.NUM_TIMESTEPS)
+            for t in range(self.NUM_TIMESTEPS + 1)
         ]
         for t, resources_at_t in enumerate(self.resources):
             for resource in resources_at_t:
@@ -54,15 +53,24 @@ class State:
                 )
                 self.resource_constraints.append(resource_lim)
 
+    # TODO: should be a real, not an int?
     def init_user_alloc_constraints(self):
         self.user_alphas = [
             [Int(f"alpha[t = {t}][i = {i}]") for i in range(self.NUM_USERS)]
-            for t in range(self.NUM_TIMESTEPS)
+            for t in range(self.NUM_TIMESTEPS + 1)
         ]
         for t, user_alphas_at_t in enumerate(self.user_alphas):
             for alpha_i in user_alphas_at_t:
                 self.user_constraints.append(
                     (alpha_i == 0) if (t == 0) else (0 <= alpha_i)
+                )
+
+        # Monotone allocations
+        for i in range(self.NUM_USERS):  # Iterate over users
+            for t in range(self.NUM_TIMESTEPS):  # Iterate over time steps (up to t + 1)
+                # Add constraint: state.user_alphas[t][i] <= state.user_alphas[t + 1][i] for monotonicity
+                self.user_constraints.append(
+                    self.user_alphas[t][i] <= self.user_alphas[t + 1][i]
                 )
 
     def init_user_demand_constraints(self):
@@ -106,14 +114,25 @@ class State:
                 ]
             )
 
+    def no_overallocation_constraints(self):
+        for t in range(self.NUM_TIMESTEPS + 1):
+            for j in range(self.NUM_RESOURCES):
+                consumed = Real(f"consumed[t = {t}, resource = {j}]")
+                consumed_expr = sum(
+                    self.user_alphas[t][i] * self.normalized_demands[i][j]
+                    for i in range(self.NUM_USERS)
+                )
+                self.demand_constraints.append(consumed == consumed_expr)
+                self.demand_constraints.append(consumed <= 1.0)
+
 
 """
 state:
 Time-invariant: 
-    * User.demands: (n x m) ... d_i in [0,1] and dominant share
+    * DONE: User.demands: (n x m) ... d_i in [0,1] and dominant share
 Change with time:
-    * resource[t]: 1 --> 0 ... should be mono decreasing
-    * User.Allocations[t][userId]
+    * DONE: resource[t]: 1 --> 0 ... should be mono decreasing
+    * DONE: User.Allocations[t][userId]
     * min dominant share = min(alpha_i * D_i)
 
 """
