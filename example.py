@@ -123,19 +123,15 @@ def all_allocations(state: State, state_transition_fn):
 "For simplicity, assume all users use all resources"
 
 
-def each_user_saturated_resource_DRF():
+def each_user_saturated_resource_DRF(T=10, U=2, R=2):
     s = Solver()
-    # T = Int("*TIMESTEPS")
-    # U = Int("*NUM_USERS")
-    # R = Int("*NUM_RESOURCES")
-    # s.add(And(0 < T, T <= 2, 0 < U, U <= 2, 0 < R, R <= 2))
-    state = State(2, 2, 2)
+    state = State(T, U, R)
     s.add(state.constraints)
     s.add(all_allocations(state, drf_algorithm_constraints))
     s.add(state.terminal == True)
 
-    # terminal --> forall i, forall j, sat(i, j)
-    # Contradiction --> exists i, exists j, unsat(i, j)
+    # terminal --> forall i, exists j, sat(i, j)
+    # Contradiction --> exists i, forall j, unsat(i, j)
     for i in range(state.NUM_USERS):
         # get dominant
         all_unsaturated = False
