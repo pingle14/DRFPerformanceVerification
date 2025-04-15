@@ -114,7 +114,7 @@ def drf_algorithm_constraints(T, state: State):
 def all_allocations(state: State, state_transition_fn):
     constraints = []
     T = Timestep(1)
-    while T.t < state.NUM_TIMESTEPS:
+    while T.t <= state.NUM_TIMESTEPS:
         constraints.extend(state_transition_fn(T, state))
         T = T.next()
     return constraints
@@ -138,7 +138,7 @@ def each_user_saturated_resource_DRF():
     # Contradiction --> exists i, exists j, unsat(i, j)
     for i in range(state.NUM_USERS):
         # get dominant
-        exists_unsaturated = False
+        all_unsaturated = False
         for j in range(state.NUM_RESOURCES):
             consumed_expr = sum(
                 (state.alphas[state.NUM_TIMESTEPS][i] + 1)
@@ -146,8 +146,8 @@ def each_user_saturated_resource_DRF():
                 for i in range(state.NUM_USERS)
             )
 
-            exists_unsaturated = Or(exists_unsaturated, consumed_expr <= 1.0)
-        s.add(Implies(state.terminal, exists_unsaturated))  # Should yield unsat
+            all_unsaturated = And(all_unsaturated, consumed_expr <= 1.0)
+        s.add(Implies(state.terminal, all_unsaturated))  # Should yield unsat
 
     res = s.check()
     if res == sat:
@@ -158,7 +158,7 @@ def each_user_saturated_resource_DRF():
                 print(e)
                 f.write(str(e) + "\n")
     else:
-        "Lemma 8 QED"
+        print("Lemma 8 QED")
 
 
 each_user_saturated_resource_DRF()

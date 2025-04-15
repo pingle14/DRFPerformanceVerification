@@ -91,7 +91,8 @@ class State:
         terminal_condition = False
         for j, resource in enumerate(self.resources[self.NUM_TIMESTEPS]):
             terminal_condition = Or(
-                resource == self.resources[self.NUM_TIMESTEPS - 1][j]
+                terminal_condition,
+                resource == self.resources[self.NUM_TIMESTEPS - 1][j],
             )
         self.constraints.append(Implies(terminal_condition, self.terminal))
         self.constraints.append(Implies(Not(terminal_condition), Not(self.terminal)))
