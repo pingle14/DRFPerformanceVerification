@@ -124,12 +124,15 @@ class State:
                 )
                 self.demand_constraints.append(consumed == consumed_expr)
                 self.demand_constraints.append(consumed <= 1.0)
+                if t > 0:
+                    self.resource_constraints.append(
+                        self.resources[t][j] == self.resources[0][j] - consumed_expr
+                    )
 
     def add_initial_state(self, user_demands=[["1/9", "4 / 18"], ["3 / 9", "1 / 18"]]):
         assert self.NUM_USERS >= len(user_demands) and self.NUM_RESOURCES == len(
             user_demands[0]
         )
-        self.constraints.append(self.epsilon == RealVal("1/3"))
         #  and state.NUM_RESOURCES >= len(user_demands[0])
         for i in range(self.NUM_USERS):
             for j in range(self.NUM_RESOURCES):
