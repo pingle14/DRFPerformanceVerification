@@ -103,6 +103,12 @@ def drf_algorithm_constraints(T, state: State):
                 ),
             )
         )
+    state_transition_constraints.extend(
+        [
+            Implies(Not(condition), state.resources[t][j] == state.resources[t - 1][j])
+            for j in range(state.NUM_RESOURCES)
+        ]
+    )
     return state_transition_constraints
 
 
@@ -125,7 +131,7 @@ print("Adding Constraints")
 s.add(st.constraints)
 s.add(all_allocations(st))
 "Add required state transitions"
-# s.add(st.epsilon == RealVal("1"))
+s.add(st.epsilon == RealVal("1/2"))
 s.add(st.user_alphas[0][0] == 0)
 s.add(st.user_alphas[0][1] == 0)
 s.add(st.user_alphas[1][0] == 0)
@@ -136,10 +142,10 @@ s.add(st.user_alphas[3][0] == 1)
 s.add(st.user_alphas[3][1] == 2)
 s.add(st.user_alphas[4][0] == 2)
 s.add(st.user_alphas[4][1] == 2)
-s.add(st.user_alphas[5][0] == 3)
-s.add(st.user_alphas[5][1] == 2)
-s.add(st.user_alphas[6][0] == 3)
-s.add(st.user_alphas[6][1] == 2)
+# s.add(st.user_alphas[5][0] == 3)
+# s.add(st.user_alphas[5][1] == 2)
+# s.add(st.user_alphas[6][0] == 3)
+# s.add(st.user_alphas[6][1] == 2)
 
 print("Checking")
 res = s.check()

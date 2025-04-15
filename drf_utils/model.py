@@ -25,6 +25,7 @@ class State:
         self.resource_constraints = []
         self.user_constraints = []
         self.demand_constraints = []
+        self.terminal = Bool("terminal")
 
         self.init_resource_constraints()
         self.init_user_alloc_constraints()
@@ -38,6 +39,12 @@ class State:
         self.constraints.extend(self.resource_constraints)
         self.constraints.extend(self.epsilon_constraints)
         self.constraints.extend(self.user_constraints)
+
+        terminal_condition = False
+        for j, resource in enumerate(self.resources[num_timesteps]):
+            terminal_condition = Or(resource == self.resources[num_timesteps - 1][j])
+        self.constraints.append(Implies(terminal_condition, self.terminal))
+        self.constraints.append(Implies(Not(terminal_condition), Not(self.terminal)))
 
     def init_resource_constraints(self):
         self.resources = [
@@ -138,6 +145,8 @@ class State:
             for j in range(self.NUM_RESOURCES):
                 demand_val = RealVal(user_demands[i][j])  # Force to be real
                 self.constraints.append(self.user_demands[i][j] == demand_val)
+
+    def should_alloc_if_not_exhausted(): ...
 
 
 """
