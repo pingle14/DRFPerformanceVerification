@@ -111,48 +111,90 @@ def drf_algorithm_constraints(T, state: State):
     return state_transition_constraints
 
 
-def all_allocations(state: State):
+def all_allocations(state: State, state_transition_fn):
     constraints = []
     T = Timestep(1)
     while T.t < state.NUM_TIMESTEPS:
-        print(f"*** attempting t = {T.t}")
-        constraints.extend(drf_algorithm_constraints(T, state))
+        constraints.extend(state_transition_fn(T, state))
         T = T.next()
     return constraints
 
 
-st = State(6, 2, 2, [["1/9", "4/18"], ["3/9", "1/18"]])
-s = Solver()
+"For simplicity, assume all users use all resources"
 
 
-print("Adding Constraints")
-s.add(st.constraints)
-s.add(all_allocations(st))
-"Add required state transitions"
-s.add(st.epsilon == RealVal("2/7"))
-s.add(st.alphas[0][0] == 0)
-s.add(st.alphas[0][1] == 0)
-s.add(st.alphas[1][0] == 0)
-s.add(st.alphas[1][1] == 1)
-s.add(st.alphas[2][0] == 1)
-s.add(st.alphas[2][1] == 1)
-s.add(st.alphas[3][0] == 1)
-s.add(st.alphas[3][1] == 2)
-s.add(st.alphas[4][0] == 2)
-s.add(st.alphas[4][1] == 2)
-s.add(st.alphas[5][0] == 3)
-s.add(st.alphas[5][1] == 2)
-s.add(st.alphas[6][0] == 3)
-s.add(st.alphas[6][1] == 2)
+def each_user_saturated_resource_DRF():
+    s = Solver()
+    # T = Int("*TIMESTEPS")
+    # U = Int("*NUM_USERS")
+    # R = Int("*NUM_RESOURCES")
+    # s.add(And(0 < T, T <= 2, 0 < U, U <= 2, 0 < R, R <= 2))
+    state = State(2, 2, 2)
+    s.add(state.constraints)
+    s.add(all_allocations(state, drf_algorithm_constraints))
+    s.add(state.terminal == True)
 
-print("Checking")
-res = s.check()
-print(f"example 1 {res}")
+    # terminal --> forall i, forall j, sat(i, j)
+    # Contradiction --> exists i, exists j, unsat(i, j)
+    for i in range(state.NUM_USERS):
+        # get dominant
+        exists_unsaturated = False
+        for j in range(state.NUM_RESOURCES):
+            consumed_expr = sum(
+                (state.alphas[state.NUM_TIMESTEPS][i] + 1)
+                * state.normalized_demands[i][j]
+                for i in range(state.NUM_USERS)
+            )
 
-if res == sat:
-    m = s.model()
-    l = sorted([f"{d} = {m[d]}" for d in m])
-    with open("example1.txt", "w") as f:
-        for e in l:
-            print(e)
-            f.write(str(e) + "\n")
+            exists_unsaturated = Or(exists_unsaturated, consumed_expr <= 1.0)
+        s.add(Implies(state.terminal, exists_unsaturated))  # Should yield unsat
+
+    res = s.check()
+    if res == sat:
+        m = s.model()
+        l = sorted([f"{d} = {m[d]}" for d in m])
+        with open("lemma8.txt", "w") as f:
+            for e in l:
+                print(e)
+                f.write(str(e) + "\n")
+    else:
+        "Lemma 8 QED"
+
+
+each_user_saturated_resource_DRF()
+
+
+def drf_paper_example():
+    st = State(6, 2, 2, [["1/9", "4/18"], ["3/9", "1/18"]])
+    s = Solver()
+    print("Adding Constraints")
+    s.add(st.constraints)
+    s.add(all_allocations(st, drf_algorithm_constraints))
+    "Add required state transitions"
+    s.add(st.epsilon == RealVal("2/7"))
+    s.add(st.alphas[0][0] == 0)
+    s.add(st.alphas[0][1] == 0)
+    s.add(st.alphas[1][0] == 0)
+    s.add(st.alphas[1][1] == 1)
+    s.add(st.alphas[2][0] == 1)
+    s.add(st.alphas[2][1] == 1)
+    s.add(st.alphas[3][0] == 1)
+    s.add(st.alphas[3][1] == 2)
+    s.add(st.alphas[4][0] == 2)
+    s.add(st.alphas[4][1] == 2)
+    s.add(st.alphas[5][0] == 3)
+    s.add(st.alphas[5][1] == 2)
+    s.add(st.alphas[6][0] == 3)
+    s.add(st.alphas[6][1] == 2)
+
+    print("Checking")
+    res = s.check()
+    print(f"example 1 {res}")
+
+    if res == sat:
+        m = s.model()
+        l = sorted([f"{d} = {m[d]}" for d in m])
+        with open("example1.txt", "w") as f:
+            for e in l:
+                print(e)
+                f.write(str(e) + "\n")
