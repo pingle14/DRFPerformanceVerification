@@ -65,14 +65,13 @@ def drf_algorithm_constraints(T, state: State):
 
     # Add the constraints for all users (compared to min_share)
     for i in range(state.NUM_USERS):
-        current_share = state.user_alphas[t - 1][i] * state.dominant_shares[i]
+        current_share = state.alphas[t - 1][i]
         comparisons = [
-            current_share <= state.user_alphas[t - 1][i2] * state.dominant_shares[i2]
-            for i2 in range(state.NUM_USERS)
+            current_share <= state.alphas[t - 1][i2] for i2 in range(state.NUM_USERS)
         ]
-        Implies(
-            chosen_user == i,
-            And(*comparisons),
+
+        state_transition_constraints.append(
+            Implies(chosen_user == i, And(*comparisons))
         )
 
     # TODO: alpha_i[t+1] =  (alpha_i[t] + 1) d_i <= 1 ? (alpha_i[t] + 1) : alpha_i[t]
@@ -81,8 +80,8 @@ def drf_algorithm_constraints(T, state: State):
         consumed_expr = sum(
             If(
                 chosen_user == i,  # If user i is the chosen user
-                state.user_alphas[t - 1][i] + 1,  # allocat this user
-                state.user_alphas[t - 1][i],  # Otherwise, stay same
+                state.alphas[t - 1][i] + 1,  # allocat this user
+                state.alphas[t - 1][i],  # Otherwise, stay same
             )
             * state.normalized_demands[i][j]
             for i in range(state.NUM_USERS)
@@ -95,11 +94,11 @@ def drf_algorithm_constraints(T, state: State):
         state_transition_constraints.append(
             Implies(
                 chosen_user == i,  # Apply only when chosen_user == i
-                state.user_alphas[t][i]
+                state.alphas[t][i]
                 == If(
                     condition,
-                    state.user_alphas[t - 1][i] + 1,
-                    state.user_alphas[t - 1][i],
+                    state.alphas[t - 1][i] + 1,
+                    state.alphas[t - 1][i],
                 ),
             )
         )
@@ -122,8 +121,7 @@ def all_allocations(state: State):
     return constraints
 
 
-st = State(6, 2, 2)
-st.add_initial_state()
+st = State(6, 2, 2, [["1/9", "4/18"], ["3/9", "1/18"]])
 s = Solver()
 
 
@@ -131,21 +129,21 @@ print("Adding Constraints")
 s.add(st.constraints)
 s.add(all_allocations(st))
 "Add required state transitions"
-s.add(st.epsilon == RealVal("1/2"))
-s.add(st.user_alphas[0][0] == 0)
-s.add(st.user_alphas[0][1] == 0)
-s.add(st.user_alphas[1][0] == 0)
-s.add(st.user_alphas[1][1] == 1)
-s.add(st.user_alphas[2][0] == 1)
-s.add(st.user_alphas[2][1] == 1)
-s.add(st.user_alphas[3][0] == 1)
-s.add(st.user_alphas[3][1] == 2)
-s.add(st.user_alphas[4][0] == 2)
-s.add(st.user_alphas[4][1] == 2)
-# s.add(st.user_alphas[5][0] == 3)
-# s.add(st.user_alphas[5][1] == 2)
-# s.add(st.user_alphas[6][0] == 3)
-# s.add(st.user_alphas[6][1] == 2)
+s.add(st.epsilon == RealVal("2/7"))
+s.add(st.alphas[0][0] == 0)
+s.add(st.alphas[0][1] == 0)
+s.add(st.alphas[1][0] == 0)
+s.add(st.alphas[1][1] == 1)
+s.add(st.alphas[2][0] == 1)
+s.add(st.alphas[2][1] == 1)
+s.add(st.alphas[3][0] == 1)
+s.add(st.alphas[3][1] == 2)
+s.add(st.alphas[4][0] == 2)
+s.add(st.alphas[4][1] == 2)
+s.add(st.alphas[5][0] == 3)
+s.add(st.alphas[5][1] == 2)
+s.add(st.alphas[6][0] == 3)
+s.add(st.alphas[6][1] == 2)
 
 print("Checking")
 res = s.check()
