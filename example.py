@@ -120,9 +120,19 @@ def all_allocations(state: State, state_transition_fn):
     return constraints
 
 
-"For simplicity, assume all users use all resources"
+def check_sat(s: Solver, fn: str, T: int, U: int, R: int):
+    res = s.check()
+    if res == sat:
+        m = s.model()
+        l = sorted([f"{d} = {m[d]}" for d in m])
+        with open(f"{fn}.txt", "w") as f:
+            for e in l:
+                print(e)
+                f.write(str(e) + "\n")
+        assert False, f"Failed on T = {T}, U = {U}, R = {R}"
 
 
+# "For simplicity, assume all users use all resources"
 def each_user_saturated_resource_DRF(T=10, U=2, R=2):
     s = Solver()
     state = State(T, U, R)
@@ -145,19 +155,74 @@ def each_user_saturated_resource_DRF(T=10, U=2, R=2):
             all_unsaturated = And(all_unsaturated, consumed_expr <= 1.0)
         s.add(Implies(state.terminal, all_unsaturated))  # Should yield unsat
 
-    res = s.check()
-    if res == sat:
-        m = s.model()
-        l = sorted([f"{d} = {m[d]}" for d in m])
-        with open("lemma8.txt", "w") as f:
-            for e in l:
-                print(e)
-                f.write(str(e) + "\n")
-    else:
-        print("Lemma 8 QED")
+    check_sat(s, "lemma8", T, U, R)
 
 
-each_user_saturated_resource_DRF()
+def test_each_user_saturated_resource_DRF():
+    for T in range(1, 10):
+        for U in range(1, 5):
+            for R in range(1, 5):
+                each_user_saturated_resource_DRF(T, U, R)
+    print("PASS: Lemma 8 QED")
+
+
+# Utilitiy is alpha
+def drf_pareto_efficient(T=2, U=2, R=2):
+    s = Solver()
+    state = State(T, U, R)
+    s.add(state.constraints)
+    s.add(all_allocations(state, drf_algorithm_constraints))
+    s.add(state.terminal == True)
+
+    # TODO: how handle fact can arbitrarily reduce epsilon?
+    s.add(state.epsilon == RealVal("1/4"))
+
+    new_alphas = [[Int(f"alpha_new[t = {T}][i = {i}]") for i in range(state.NUM_USERS)]]
+    for i in range(state.NUM_USERS):
+        for i2 in range(i + 1, state.NUM_USERS):
+            # Create a condition that improves alloc
+            improved = new_alphas[i] > state.alphas[T][i]
+
+            # TODO: fix: Keep all other objectives at least as good
+            # Add dont overflow resources condition based on new_alphas
+            same_others = And(
+                [
+                    new_alphas[i2] >= state.alphas[T][i2]
+                    for j in range(state.NUM_USERS)
+                    if i != j
+                ]
+            )
+
+            # s.add(state.alphas[T][i] + 1 <= state.alphas[T][i2] - 1)
+    check_sat(s, "pareto", T, U, R)
+
+
+def drf_sharing_incentive(T, U, R):
+    s = Solver()
+    state = State(T, U, R)
+    s.add(state.constraints)
+    s.add(all_allocations(state, drf_algorithm_constraints))
+    s.add(state.terminal == True)
+
+
+def drf_envy_free(T, U, R):
+    s = Solver()
+    state = State(T, U, R)
+    s.add(state.constraints)
+    s.add(all_allocations(state, drf_algorithm_constraints))
+    s.add(state.terminal == True)
+
+
+def drf_strategy_proof(T, U, R):
+    s = Solver()
+    state = State(T, U, R)
+    s.add(state.constraints)
+    s.add(all_allocations(state, drf_algorithm_constraints))
+    s.add(state.terminal == True)
+
+
+# test_each_user_saturated_resource_DRF()
+drf_pareto_efficient()
 
 
 def drf_paper_example():
@@ -194,3 +259,6 @@ def drf_paper_example():
             for e in l:
                 print(e)
                 f.write(str(e) + "\n")
+
+
+# drf_paper_example()
