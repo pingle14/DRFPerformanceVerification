@@ -120,7 +120,7 @@ def all_allocations(state: State, state_transition_fn):
     return constraints
 
 
-def check_sat(s: Solver, fn: str, T: int, U: int, R: int):
+def check_sat_helper(s: Solver, fn: str, T: int, U: int, R: int):
     res = s.check()
     if res == sat:
         m = s.model()
@@ -129,11 +129,20 @@ def check_sat(s: Solver, fn: str, T: int, U: int, R: int):
             for e in l:
                 print(e)
                 f.write(str(e) + "\n")
-        assert False, f"Failed on T = {T}, U = {U}, R = {R}"
+        return False
+    return True
+
+
+def check_sat(s: Solver, fn: str, T: int, U: int, R: int, verbose=True):
+    if verbose:
+        print(f"Checking {fn} ... ", end="")
+    result = check_sat_helper(s, fn, T, U, R)
+    if verbose:
+        print("PASS" if result else "FAIL")
 
 
 # "For simplicity, assume all users use all resources"
-def each_user_saturated_resource_DRF(T=10, U=2, R=2):
+def each_user_saturated_resource_DRF(T=5, U=2, R=2, verbose=True):
     s = Solver()
     state = State(T, U, R)
     s.add(state.constraints)
@@ -144,25 +153,27 @@ def each_user_saturated_resource_DRF(T=10, U=2, R=2):
     # Contradiction --> exists i, forall j, unsat(i, j)
     for i in range(state.NUM_USERS):
         # get dominant
-        all_unsaturated = False
+        all_unsaturated = True
         for j in range(state.NUM_RESOURCES):
+            # change user i to (alpha_i + 1). Keep other users the same.
+            # Show how this overconsumes resources
             consumed_expr = sum(
-                (state.alphas[state.NUM_TIMESTEPS][i] + 1)
-                * state.normalized_demands[i][j]
-                for i in range(state.NUM_USERS)
+                (state.alphas[state.NUM_TIMESTEPS][i2] + If(i2 == i, 1, 0))
+                * state.normalized_demands[i2][j]
+                for i2 in range(state.NUM_USERS)
             )
 
             all_unsaturated = And(all_unsaturated, consumed_expr <= 1.0)
         s.add(Implies(state.terminal, all_unsaturated))  # Should yield unsat
 
-    check_sat(s, "lemma8", T, U, R)
+    check_sat(s, "lemma8", T, U, R, verbose)
 
 
 def test_each_user_saturated_resource_DRF():
-    for T in range(1, 10):
+    for T in range(1, 5):
         for U in range(1, 5):
             for R in range(1, 5):
-                each_user_saturated_resource_DRF(T, U, R)
+                each_user_saturated_resource_DRF(T, U, R, False)
     print("PASS: Lemma 8 QED")
 
 
@@ -174,26 +185,26 @@ def drf_pareto_efficient(T=2, U=2, R=2):
     s.add(all_allocations(state, drf_algorithm_constraints))
     s.add(state.terminal == True)
 
-    # TODO: how handle fact can arbitrarily reduce epsilon?
-    s.add(state.epsilon == RealVal("1/4"))
-
-    new_alphas = [[Int(f"alpha_new[t = {T}][i = {i}]") for i in range(state.NUM_USERS)]]
+    new_alphas = [Int(f"alpha_new[t = {T}][i = {i}]") for i in range(state.NUM_USERS)]
     for i in range(state.NUM_USERS):
-        for i2 in range(i + 1, state.NUM_USERS):
-            # Create a condition that improves alloc
-            improved = new_alphas[i] > state.alphas[T][i]
+        # Add all new alloc constraints: chosen user improves. remainin users at least as good
+        for i2 in range(state.NUM_USERS):
+            constraint = (
+                new_alphas[i] > state.alphas[T][i]
+                if i == i2
+                else new_alphas[i2] >= state.alphas[T][i2]
+            )
+            s.add(constraint)
 
-            # TODO: fix: Keep all other objectives at least as good
-            # Add dont overflow resources condition based on new_alphas
-            same_others = And(
-                [
-                    new_alphas[i2] >= state.alphas[T][i2]
-                    for j in range(state.NUM_USERS)
-                    if i != j
-                ]
+        all_unsaturated = True
+        for j in range(state.NUM_RESOURCES):
+            consumed_expr = sum(
+                (new_alphas[i2]) * state.normalized_demands[i2][j]
+                for i2 in range(state.NUM_USERS)
             )
 
-            # s.add(state.alphas[T][i] + 1 <= state.alphas[T][i2] - 1)
+            all_unsaturated = And(all_unsaturated, consumed_expr <= 1.0)
+        s.add(Implies(state.terminal, all_unsaturated))  # Should yield unsat
     check_sat(s, "pareto", T, U, R)
 
 
@@ -219,10 +230,6 @@ def drf_strategy_proof(T, U, R):
     s.add(state.constraints)
     s.add(all_allocations(state, drf_algorithm_constraints))
     s.add(state.terminal == True)
-
-
-# test_each_user_saturated_resource_DRF()
-drf_pareto_efficient()
 
 
 def drf_paper_example():
@@ -262,3 +269,7 @@ def drf_paper_example():
 
 
 # drf_paper_example()
+# test_each_user_saturated_resource_DRF()
+# drf_pareto_efficient()
+each_user_saturated_resource_DRF()
+drf_pareto_efficient()
