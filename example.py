@@ -57,7 +57,7 @@ def DRF_Algorithm(state):
 def drf_algorithm_constraints(T, state: State):
     state_transition_constraints = []
     t = T.t
-    # TODO: Check if correct: Pick the min dom share user: user with min alpha_i[t]
+    # Pick the min dom share user: user with min alpha_i[t]
     chosen_user = Int(f"chosen_user[t = {t}]")
     state_transition_constraints.append(
         And(chosen_user >= 0, chosen_user < state.NUM_USERS)
@@ -74,7 +74,6 @@ def drf_algorithm_constraints(T, state: State):
             Implies(chosen_user == i, And(*comparisons))
         )
 
-    # TODO: alpha_i[t+1] =  (alpha_i[t] + 1) d_i <= 1 ? (alpha_i[t] + 1) : alpha_i[t]
     condition = True
     for j in range(state.NUM_RESOURCES):
         consumed_expr = sum(
@@ -108,6 +107,7 @@ def drf_algorithm_constraints(T, state: State):
             for j in range(state.NUM_RESOURCES)
         ]
     )
+    state_transition_constraints.append(Implies(Not(condition), state.terminal == True))
     return state_transition_constraints
 
 
@@ -219,30 +219,6 @@ def test_drf_pareto_efficient():
     print("PASS")
 
 
-# A user should not be able to allocate more
-# tasks in a cluster partition consisting of 1/n of all resources
-def drf_sharing_incentive(T=2, U=2, R=2, verbose=True):
-    s = Solver()
-    state = State(T, U, R)
-    s.add(state.constraints)
-    s.add(all_allocations(state, drf_algorithm_constraints))
-    s.add(state.terminal == True)
-
-    saturated_resource_indx = Int("saturated_resource_indx")
-    hogging_user = Int("hogging_user_indx")
-    hogging_user_share = Int("t_{i, k}")
-    s.add(
-        And(saturated_resource_indx >= 0, saturated_resource_indx < state.NUM_RESOURCES)
-    )
-    s.add(And(hogging_user >= 0, hogging_user < state.NUM_USERS))
-    s.add((1 / state.NUM_USERS) <= hogging_user_share)
-    for i in range(state.NUM_USERS):
-        Implies(
-            i == hogging_user,
-            hogging_user_share <= state.alphas[state.NUM_TIMESTEPS][i] * state.epsilon,
-        )
-
-
 def drf_envy_free(T=2, U=2, R=2, verbose=True):
     s = Solver()
     state = State(T, U, R)
@@ -294,6 +270,53 @@ def test_drf_envy_free():
     print("PASS")
 
 
+# A user should not be able to allocate more
+# tasks in a cluster partition consisting of 1/n of all resources
+def drf_sharing_incentive(T=2, U=2, R=2, verbose=True):
+    s = Solver()
+    state = State(T, U, R)
+    s.add(state.constraints)
+    s.add(all_allocations(state, drf_algorithm_constraints))
+    s.add(state.terminal == True)
+
+    # show forall i. s_i >= 1/n
+    """
+    3/8, 3/8
+    """
+    exists_bad_sharing = False
+
+    # all same dominant share --> should get 1/n resource
+    common_share_indx = Int("common_share_indx")
+    common_dominant_share = Real("common_dom_share")
+    s.add(And(common_share_indx >= 0, common_share_indx < state.NUM_RESOURCES))
+    s.add(common_dominant_share == 1 / state.NUM_USERS)
+    all_equal = And(
+        *[
+            state.dominant_shares_indices[i] == common_share_indx
+            for i in range(state.NUM_USERS)
+        ]
+    )
+    for j in range(state.NUM_RESOURCES):
+        s.add(
+            Implies(
+                And(all_equal, j == common_share_indx),
+                And(
+                    *[
+                        common_dominant_share
+                        == (state.alphas[state.NUM_TIMESTEPS][j] * state.epsilon)
+                    ]
+                ),
+            )
+        )
+
+    for i in range(state.NUM_USERS):
+        dominant_share = state.alphas[state.NUM_TIMESTEPS][i] * state.epsilon
+        bad_alloc = dominant_share < (1 / state.NUM_USERS)
+        exists_bad_sharing = Or(exists_bad_sharing, bad_alloc)
+    s.add(exists_bad_sharing)
+    return check_sat(s, "sharing_incentive", T, U, R, verbose)
+
+
 def drf_strategy_proof(T, U, R):
     s = Solver()
     state = State(T, U, R)
@@ -342,3 +365,4 @@ def drf_paper_example():
 test_each_user_saturated_resource_DRF()
 test_drf_pareto_efficient()
 test_drf_envy_free()
+drf_sharing_incentive()

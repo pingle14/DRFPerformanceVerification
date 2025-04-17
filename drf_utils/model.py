@@ -39,6 +39,10 @@ class State:
             for t in range(self.NUM_TIMESTEPS + 1)
         ]
 
+        self.total_alphas = [
+            Int(f"alpha_sum[t = {t}]") for t in range(self.NUM_TIMESTEPS + 1)
+        ]
+
         self.org_demands = [
             [
                 Real(f"demand_original[userId = {i}][resource = {j}]")
@@ -71,6 +75,7 @@ class State:
         self.no_overallocation_constraints()
         self.alphas_are_positive()
         self.alphas_are_monotonic_inc()
+        self.define_total_alphas()  # Cant alloc multiple alphas at one. Can only choose 1 user
         self.demands_are_bdd()
         self.define_dominant_shares()
         self.define_normalized_demands()
@@ -120,6 +125,19 @@ class State:
         for i in range(self.NUM_USERS):
             for t in range(self.NUM_TIMESTEPS):
                 self.constraints.append(self.alphas[t][i] <= self.alphas[t + 1][i])
+
+    def define_total_alphas(self):
+        self.constraints.append(self.total_alphas[0] == 0)
+        for t in range(self.NUM_TIMESTEPS + 1):
+            self.constraints.append(
+                self.total_alphas[t]
+                == sum([self.alphas[t][i] for i in range(self.NUM_USERS)])
+            )
+
+        for t in range(self.NUM_TIMESTEPS):
+            # Sum all alphas ... should be <= 1 greater than one before
+            difference = self.total_alphas[t + 1] - self.total_alphas[t]
+            self.constraints.append(And(difference >= 0, difference <= 1))
 
     def demands_are_bdd(self):
         for i in range(len(self.org_demands)):
