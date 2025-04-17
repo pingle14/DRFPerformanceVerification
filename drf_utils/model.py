@@ -137,7 +137,7 @@ class State:
         for t in range(self.NUM_TIMESTEPS):
             # Sum all alphas ... should be <= 1 greater than one before
             difference = self.total_alphas[t + 1] - self.total_alphas[t]
-            self.constraints.append(And(difference >= 0, difference <= 1))
+            self.constraints.append(Or(difference == 0, difference == self.NUM_USERS))
 
     def demands_are_bdd(self):
         for i in range(len(self.org_demands)):

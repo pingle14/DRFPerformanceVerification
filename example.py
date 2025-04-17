@@ -57,6 +57,31 @@ def DRF_Algorithm(state):
 def drf_algorithm_constraints(T, state: State):
     state_transition_constraints = []
     t = T.t
+
+    # check alpha + 1 for everyone will not exceed consumed
+    all_unsaturated = True
+    for j in range(state.NUM_RESOURCES):
+        consumed_expr = sum(
+            (state.alphas[t - 1][i] + 1) * state.normalized_demands[i][j]
+            for i in range(state.NUM_USERS)
+        )
+
+        all_unsaturated = And(all_unsaturated, consumed_expr <= 1.0)
+
+    new_alphas = And(
+        *[
+            state.alphas[t][i] == 1 + state.alphas[t - 1][i]
+            for i in range(state.NUM_USERS)
+        ]
+    )
+    state_transition_constraints.append(Implies(all_unsaturated, new_alphas))
+    state_transition_constraints.append(Implies(new_alphas, all_unsaturated))
+    return state_transition_constraints
+
+
+def drf_algorithm_constraints2(T, state: State):
+    state_transition_constraints = []
+    t = T.t
     # Pick the min dom share user: user with min alpha_i[t]
     chosen_user = Int(f"chosen_user[t = {t}]")
     state_transition_constraints.append(
@@ -332,21 +357,21 @@ def drf_paper_example():
     s.add(st.constraints)
     s.add(all_allocations(st, drf_algorithm_constraints))
     "Add required state transitions"
-    s.add(st.epsilon == RealVal("2/7"))
-    s.add(st.alphas[0][0] == 0)
-    s.add(st.alphas[0][1] == 0)
-    s.add(st.alphas[1][0] == 0)
-    s.add(st.alphas[1][1] == 1)
-    s.add(st.alphas[2][0] == 1)
-    s.add(st.alphas[2][1] == 1)
-    s.add(st.alphas[3][0] == 1)
-    s.add(st.alphas[3][1] == 2)
-    s.add(st.alphas[4][0] == 2)
-    s.add(st.alphas[4][1] == 2)
-    s.add(st.alphas[5][0] == 3)
-    s.add(st.alphas[5][1] == 2)
-    s.add(st.alphas[6][0] == 3)
-    s.add(st.alphas[6][1] == 2)
+    # s.add(st.epsilon == RealVal("2/7"))
+    # s.add(st.alphas[0][0] == 0)
+    # s.add(st.alphas[0][1] == 0)
+    # s.add(st.alphas[1][0] == 0)
+    # s.add(st.alphas[1][1] == 1)
+    # s.add(st.alphas[2][0] == 1)
+    # s.add(st.alphas[2][1] == 1)
+    # s.add(st.alphas[3][0] == 1)
+    # s.add(st.alphas[3][1] == 2)
+    # s.add(st.alphas[4][0] == 2)
+    # s.add(st.alphas[4][1] == 2)
+    # s.add(st.alphas[5][0] == 3)
+    # s.add(st.alphas[5][1] == 2)
+    # s.add(st.alphas[6][0] == 3)
+    # s.add(st.alphas[6][1] == 2)
 
     print("Checking")
     res = s.check()
