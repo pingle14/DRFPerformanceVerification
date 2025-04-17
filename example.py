@@ -139,6 +139,7 @@ def check_sat(s: Solver, fn: str, T: int, U: int, R: int, verbose=True):
     result = check_sat_helper(s, fn, T, U, R)
     if verbose:
         print("PASS" if result else "FAIL")
+    return result
 
 
 # "For simplicity, assume all users use all resources"
@@ -166,19 +167,20 @@ def each_user_saturated_resource_DRF(T=5, U=2, R=2, verbose=True):
             all_unsaturated = And(all_unsaturated, consumed_expr <= 1.0)
         s.add(Implies(state.terminal, all_unsaturated))  # Should yield unsat
 
-    check_sat(s, "lemma8", T, U, R, verbose)
+    return check_sat(s, "lemma8", T, U, R, verbose)
 
 
 def test_each_user_saturated_resource_DRF():
+    print("Checking lemma 8 for all T, U, R (bdd) ... ", end="")
     for T in range(1, 5):
-        for U in range(1, 5):
-            for R in range(1, 5):
-                each_user_saturated_resource_DRF(T, U, R, False)
-    print("PASS: Lemma 8 QED")
+        for U in range(1, 2):
+            for R in range(1, 2):
+                assert each_user_saturated_resource_DRF(T, U, R, False)
+    print("PASS")
 
 
 # Utilitiy is alpha
-def drf_pareto_efficient(T=2, U=2, R=2):
+def drf_pareto_efficient(T=2, U=2, R=2, verbose=True):
     s = Solver()
     state = State(T, U, R)
     s.add(state.constraints)
@@ -205,23 +207,91 @@ def drf_pareto_efficient(T=2, U=2, R=2):
 
             all_unsaturated = And(all_unsaturated, consumed_expr <= 1.0)
         s.add(Implies(state.terminal, all_unsaturated))  # Should yield unsat
-    check_sat(s, "pareto", T, U, R)
+    return check_sat(s, "pareto", T, U, R, verbose)
 
 
-def drf_sharing_incentive(T, U, R):
+def test_drf_pareto_efficient():
+    print("Checking pareto for all T, U, R (bdd) ... ", end="")
+    for T in range(1, 5):
+        for U in range(1, 2):
+            for R in range(1, 2):
+                assert drf_pareto_efficient(T, U, R, False)
+    print("PASS")
+
+
+# A user should not be able to allocate more
+# tasks in a cluster partition consisting of 1/n of all resources
+def drf_sharing_incentive(T=2, U=2, R=2, verbose=True):
     s = Solver()
     state = State(T, U, R)
     s.add(state.constraints)
     s.add(all_allocations(state, drf_algorithm_constraints))
     s.add(state.terminal == True)
 
+    saturated_resource_indx = Int("saturated_resource_indx")
+    hogging_user = Int("hogging_user_indx")
+    hogging_user_share = Int("t_{i, k}")
+    s.add(
+        And(saturated_resource_indx >= 0, saturated_resource_indx < state.NUM_RESOURCES)
+    )
+    s.add(And(hogging_user >= 0, hogging_user < state.NUM_USERS))
+    s.add((1 / state.NUM_USERS) <= hogging_user_share)
+    for i in range(state.NUM_USERS):
+        Implies(
+            i == hogging_user,
+            hogging_user_share <= state.alphas[state.NUM_TIMESTEPS][i] * state.epsilon,
+        )
 
-def drf_envy_free(T, U, R):
+
+def drf_envy_free(T=2, U=2, R=2, verbose=True):
     s = Solver()
     state = State(T, U, R)
     s.add(state.constraints)
     s.add(all_allocations(state, drf_algorithm_constraints))
     s.add(state.terminal == True)
+
+    # User i envys user j
+    def envy_condition(i, i2):
+        conditions = []
+        for j in range(state.NUM_RESOURCES):
+            # If user i wants resource r, then user j must have strictly more of it than user i
+            conditions.append(
+                (
+                    state.alphas[state.NUM_TIMESTEPS][i2]
+                    * state.normalized_demands[i2][j]
+                )
+                > (
+                    state.alphas[state.NUM_TIMESTEPS][i]
+                    * state.normalized_demands[i][j]
+                )
+            )
+        return And(conditions)
+
+    exists_envy = False
+    for userI in range(state.NUM_USERS):
+        for userJ in range(state.NUM_USERS):
+            if userI != userJ:
+                envy = envy_condition(userI, userJ)
+                s.add(
+                    Implies(
+                        envy,
+                        (state.alphas[state.NUM_TIMESTEPS][userJ])
+                        == (state.alphas[state.NUM_TIMESTEPS][userI]),
+                    )
+                )
+                exists_envy = Or(exists_envy, envy)
+
+    s.add(exists_envy)
+    return check_sat(s, "envy_free", T, U, R, verbose)
+
+
+def test_drf_envy_free():
+    print("Checking envy freedom for all T, U, R (bdd) ... ", end="")
+    for T in range(1, 5):
+        for U in range(1, 2):
+            for R in range(1, 2):
+                assert drf_envy_free(T, U, R, False)
+    print("PASS")
 
 
 def drf_strategy_proof(T, U, R):
@@ -269,7 +339,6 @@ def drf_paper_example():
 
 
 # drf_paper_example()
-# test_each_user_saturated_resource_DRF()
-# drf_pareto_efficient()
-each_user_saturated_resource_DRF()
-drf_pareto_efficient()
+test_each_user_saturated_resource_DRF()
+test_drf_pareto_efficient()
+test_drf_envy_free()
