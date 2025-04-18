@@ -54,95 +54,8 @@ def DRF_Algorithm(state):
 """
 
 
-def drf_algorithm_constraints(T, state: State):
-    state_transition_constraints = []
-    t = T.t
-
-    # check alpha + 1 for everyone will not exceed consumed
-    all_unsaturated = True
-    for j in range(state.NUM_RESOURCES):
-        consumed_expr = sum(
-            (state.alphas[t - 1][i] + 1) * state.normalized_demands[i][j]
-            for i in range(state.NUM_USERS)
-        )
-
-        all_unsaturated = And(all_unsaturated, consumed_expr <= 1.0)
-
-    new_alphas = And(
-        *[
-            state.alphas[t][i] == 1 + state.alphas[t - 1][i]
-            for i in range(state.NUM_USERS)
-        ]
-    )
-    state_transition_constraints.append(Implies(all_unsaturated, new_alphas))
-    state_transition_constraints.append(Implies(new_alphas, all_unsaturated))
-    return state_transition_constraints
-
-
-def drf_algorithm_constraints2(T, state: State):
-    state_transition_constraints = []
-    t = T.t
-    # Pick the min dom share user: user with min alpha_i[t]
-    chosen_user = Int(f"chosen_user[t = {t}]")
-    state_transition_constraints.append(
-        And(chosen_user >= 0, chosen_user < state.NUM_USERS)
-    )
-
-    # Add the constraints for all users (compared to min_share)
-    for i in range(state.NUM_USERS):
-        current_share = state.alphas[t - 1][i]
-        comparisons = [
-            current_share <= state.alphas[t - 1][i2] for i2 in range(state.NUM_USERS)
-        ]
-
-        state_transition_constraints.append(
-            Implies(chosen_user == i, And(*comparisons))
-        )
-
-    condition = True
-    for j in range(state.NUM_RESOURCES):
-        consumed_expr = sum(
-            If(
-                chosen_user == i,  # If user i is the chosen user
-                state.alphas[t - 1][i] + 1,  # allocat this user
-                state.alphas[t - 1][i],  # Otherwise, stay same
-            )
-            * state.normalized_demands[i][j]
-            for i in range(state.NUM_USERS)
-        )
-
-        # Combine the constraints w And
-        condition = And(condition, consumed_expr <= 1.0)
-
-    for i in range(state.NUM_USERS):
-        state_transition_constraints.append(
-            Implies(
-                chosen_user == i,  # Apply only when chosen_user == i
-                state.alphas[t][i]
-                == If(
-                    condition,
-                    state.alphas[t - 1][i] + 1,
-                    state.alphas[t - 1][i],
-                ),
-            )
-        )
-    state_transition_constraints.extend(
-        [
-            Implies(Not(condition), state.resources[t][j] == state.resources[t - 1][j])
-            for j in range(state.NUM_RESOURCES)
-        ]
-    )
-    state_transition_constraints.append(Implies(Not(condition), state.terminal == True))
-    return state_transition_constraints
-
-
-def all_allocations(state: State, state_transition_fn):
-    constraints = []
-    T = Timestep(1)
-    while T.t <= state.NUM_TIMESTEPS:
-        constraints.extend(state_transition_fn(T, state))
-        T = T.next()
-    return constraints
+# NOTE: We guarantee after T timesteps you reach a terminal state.
+# This ensures the algorithm steps
 
 
 def check_sat_helper(s: Solver, fn: str, T: int, U: int, R: int):
@@ -172,8 +85,8 @@ def each_user_saturated_resource_DRF(T=5, U=2, R=2, verbose=True):
     s = Solver()
     state = State(T, U, R)
     s.add(state.constraints)
-    s.add(all_allocations(state, drf_algorithm_constraints))
-    s.add(state.terminal == True)
+    # s.add(all_allocations(state, drf_algorithm_constraints))
+    # s.add(state.terminal == True)
 
     # terminal --> forall i, exists j, sat(i, j)
     # Contradiction --> exists i, forall j, unsat(i, j)
@@ -184,13 +97,13 @@ def each_user_saturated_resource_DRF(T=5, U=2, R=2, verbose=True):
             # change user i to (alpha_i + 1). Keep other users the same.
             # Show how this overconsumes resources
             consumed_expr = sum(
-                (state.alphas[state.NUM_TIMESTEPS][i2] + If(i2 == i, 1, 0))
+                (state.alphas[state.NUM_TIMESTEPS] + If(i2 == i, 1, 0))
                 * state.normalized_demands[i2][j]
                 for i2 in range(state.NUM_USERS)
             )
 
             all_unsaturated = And(all_unsaturated, consumed_expr <= 1.0)
-        s.add(Implies(state.terminal, all_unsaturated))  # Should yield unsat
+        s.add(all_unsaturated)  # Should yield unsat
 
     return check_sat(s, "lemma8", T, U, R, verbose)
 
@@ -209,17 +122,17 @@ def drf_pareto_efficient(T=2, U=2, R=2, verbose=True):
     s = Solver()
     state = State(T, U, R)
     s.add(state.constraints)
-    s.add(all_allocations(state, drf_algorithm_constraints))
-    s.add(state.terminal == True)
+    # s.add(all_allocations(state, drf_algorithm_constraints))
+    # s.add(state.terminal == True)
 
     new_alphas = [Int(f"alpha_new[t = {T}][i = {i}]") for i in range(state.NUM_USERS)]
     for i in range(state.NUM_USERS):
         # Add all new alloc constraints: chosen user improves. remainin users at least as good
         for i2 in range(state.NUM_USERS):
             constraint = (
-                new_alphas[i] > state.alphas[T][i]
+                new_alphas[i] > state.alphas[T]
                 if i == i2
-                else new_alphas[i2] >= state.alphas[T][i2]
+                else new_alphas[i2] >= state.alphas[T]
             )
             s.add(constraint)
 
@@ -231,7 +144,7 @@ def drf_pareto_efficient(T=2, U=2, R=2, verbose=True):
             )
 
             all_unsaturated = And(all_unsaturated, consumed_expr <= 1.0)
-        s.add(Implies(state.terminal, all_unsaturated))  # Should yield unsat
+        s.add(all_unsaturated)  # Should yield unsat
     return check_sat(s, "pareto", T, U, R, verbose)
 
 
@@ -248,8 +161,8 @@ def drf_envy_free(T=2, U=2, R=2, verbose=True):
     s = Solver()
     state = State(T, U, R)
     s.add(state.constraints)
-    s.add(all_allocations(state, drf_algorithm_constraints))
-    s.add(state.terminal == True)
+    # s.add(all_allocations(state, drf_algorithm_constraints))
+    # s.add(state.terminal == True)
 
     # User i envys user j
     def envy_condition(i, i2):
@@ -257,14 +170,8 @@ def drf_envy_free(T=2, U=2, R=2, verbose=True):
         for j in range(state.NUM_RESOURCES):
             # If user i wants resource r, then user j must have strictly more of it than user i
             conditions.append(
-                (
-                    state.alphas[state.NUM_TIMESTEPS][i2]
-                    * state.normalized_demands[i2][j]
-                )
-                > (
-                    state.alphas[state.NUM_TIMESTEPS][i]
-                    * state.normalized_demands[i][j]
-                )
+                (state.alphas[state.NUM_TIMESTEPS] * state.normalized_demands[i2][j])
+                > (state.alphas[state.NUM_TIMESTEPS] * state.normalized_demands[i][j])
             )
         return And(conditions)
 
@@ -301,8 +208,8 @@ def drf_sharing_incentive(T=2, U=2, R=2, verbose=True):
     s = Solver()
     state = State(T, U, R)
     s.add(state.constraints)
-    s.add(all_allocations(state, drf_algorithm_constraints))
-    s.add(state.terminal == True)
+    # s.add(all_allocations(state, drf_algorithm_constraints))
+    # s.add(state.terminal == True)
 
     # show forall i. s_i >= 1/n
     """
@@ -321,21 +228,10 @@ def drf_sharing_incentive(T=2, U=2, R=2, verbose=True):
             for i in range(state.NUM_USERS)
         ]
     )
-    for j in range(state.NUM_RESOURCES):
-        s.add(
-            Implies(
-                And(all_equal, j == common_share_indx),
-                And(
-                    *[
-                        common_dominant_share
-                        == (state.alphas[state.NUM_TIMESTEPS][j] * state.epsilon)
-                    ]
-                ),
-            )
-        )
+    s.add(common_dominant_share == (state.alphas[state.NUM_TIMESTEPS] * state.epsilon))
 
     for i in range(state.NUM_USERS):
-        dominant_share = state.alphas[state.NUM_TIMESTEPS][i] * state.epsilon
+        dominant_share = state.alphas[state.NUM_TIMESTEPS] * state.epsilon
         bad_alloc = dominant_share < (1 / state.NUM_USERS)
         exists_bad_sharing = Or(exists_bad_sharing, bad_alloc)
     s.add(exists_bad_sharing)

@@ -15,6 +15,8 @@ class Timestep:
         return Timestep(self.t + 1)
 
 
+# NOTE: We guarantee after T timesteps you reach a terminal state.
+# This ensures the algorithm steps
 class State:
     def __init__(self, num_timesteps, num_users, num_resources, given_demands=None):
         self.NUM_TIMESTEPS = num_timesteps
@@ -22,7 +24,6 @@ class State:
         self.NUM_RESOURCES = num_resources
         self.constraints = []
         self.epsilon = Real(f"epsilon")
-        self.terminal = Bool("terminal")
 
         self.resources = [
             [Real(f"resource[t = {t}][j = {j}]") for j in range(self.NUM_RESOURCES)]
@@ -34,14 +35,8 @@ class State:
             for t in range(self.NUM_TIMESTEPS + 1)
         ]
 
-        self.alphas = [
-            [Int(f"alpha[t = {t}][i = {i}]") for i in range(self.NUM_USERS)]
-            for t in range(self.NUM_TIMESTEPS + 1)
-        ]
-
-        self.total_alphas = [
-            Int(f"alpha_sum[t = {t}]") for t in range(self.NUM_TIMESTEPS + 1)
-        ]
+        # User utilities -- Common among all users in progressive filling
+        self.alphas = [Int(f"alpha[t = {t}]") for t in range(self.NUM_TIMESTEPS + 1)]
 
         self.org_demands = [
             [
@@ -65,20 +60,18 @@ class State:
         self.unscaled_max_shared = [
             Real(f"s_{i}_unscaled") for i in range(self.NUM_USERS)
         ]
+        self.dominant_shares = [Real("s_{i}") for i in range(self.NUM_USERS)]
 
-        self.process_given_demands(given_demands)
-        self.define_terminal_constraints()
         self.constraints.append(And(self.epsilon > 0.0, self.epsilon <= 1.0))
-        self.resources_are_bdd()
-        self.resources_are_mono_dec()
-        self.consumed_are_mono_inc()
-        self.no_overallocation_constraints()
-        self.alphas_are_positive()
-        self.alphas_are_monotonic_inc()
-        self.define_total_alphas()  # Cant alloc multiple alphas at one. Can only choose 1 user
+        self.process_given_demands(given_demands)
+        self.resources_and_consumed_are_bdd()
+        self.resources_and_consumed_are_monotonic()
+        self.saturate_a_resource_at_end()
+        self.alphas_are_positive_and_strictly_monotonic()
         self.demands_are_bdd()
         self.define_dominant_shares()
         self.define_normalized_demands()
+        self.no_overallocation_constraints()
 
     def process_given_demands(self, given_demands):
         if given_demands is not None:
@@ -92,52 +85,47 @@ class State:
                     demand_val = RealVal(given_demands[i][j])  # Force to be real
                     self.constraints.append(self.org_demands[i][j] == demand_val)
 
-    def define_terminal_constraints(self):
-        terminal_condition = False
-        for j, resource in enumerate(self.resources[self.NUM_TIMESTEPS]):
-            terminal_condition = Or(
-                terminal_condition,
-                resource == self.resources[self.NUM_TIMESTEPS - 1][j],
-            )
-        self.constraints.append(Implies(terminal_condition, self.terminal))
-        self.constraints.append(Implies(Not(terminal_condition), Not(self.terminal)))
+    def resources_and_consumed_are_bdd(self):
+        self.constraints.append(
+            And(*[1.0 == self.resources[0][j] for j in range(self.NUM_RESOURCES)])
+        )
+        self.constraints.append(
+            And(*[0.0 == self.consumed[0][j] for j in range(self.NUM_RESOURCES)])
+        )
+        for t in range(len(self.resources)):
+            for j in range(len(self.resources[t])):
+                self.constraints.append(
+                    And(
+                        0.0 <= self.resources[t][j],
+                        self.resources[t][j] <= 1.0,
+                        0.0 <= self.consumed[t][j],
+                        self.consumed[t][j] <= 1.0,
+                    )
+                )
 
-    def resources_are_bdd(self):
-        for t, resources_at_t in enumerate(self.resources):
-            for resource in resources_at_t:
-                self.constraints.append(And(0.0 <= resource, resource <= 1.0))
-                if t == 0:
-                    self.constraints.append(1.0 == resource)
-
-    def resources_are_mono_dec(self):
+    def resources_and_consumed_are_monotonic(self):
         for j in range(self.NUM_RESOURCES):
             for t in range(self.NUM_TIMESTEPS):
                 self.constraints.append(
-                    self.resources[t][j] >= self.resources[t + 1][j]
+                    And(
+                        self.resources[t][j] >= self.resources[t + 1][j],  # mono dec
+                        self.consumed[t][j] <= self.consumed[t + 1][j],  # mono inc
+                    )
                 )
 
-    def alphas_are_positive(self):  # can never have a negative alloc count
-        for t, alphas_at_t in enumerate(self.alphas):
-            for alpha_i in alphas_at_t:
-                self.constraints.append((alpha_i == 0) if (t == 0) else (0 <= alpha_i))
-
-    def alphas_are_monotonic_inc(self):
-        for i in range(self.NUM_USERS):
-            for t in range(self.NUM_TIMESTEPS):
-                self.constraints.append(self.alphas[t][i] <= self.alphas[t + 1][i])
-
-    def define_total_alphas(self):
-        self.constraints.append(self.total_alphas[0] == 0)
-        for t in range(self.NUM_TIMESTEPS + 1):
-            self.constraints.append(
-                self.total_alphas[t]
-                == sum([self.alphas[t][i] for i in range(self.NUM_USERS)])
+    def saturate_a_resource_at_end(self):
+        exists_zero_resource = False
+        for j in range(self.NUM_RESOURCES):
+            exists_zero_resource = Or(
+                exists_zero_resource, self.resources[self.NUM_TIMESTEPS][j] == 0.0
             )
+        self.constraints.append(exists_zero_resource)
 
+    def alphas_are_positive_and_strictly_monotonic(self):
+        for t, alpha in enumerate(self.alphas):
+            self.constraints.append((alpha == 0) if (t == 0) else (0 <= alpha))
         for t in range(self.NUM_TIMESTEPS):
-            # Sum all alphas ... should be <= 1 greater than one before
-            difference = self.total_alphas[t + 1] - self.total_alphas[t]
-            self.constraints.append(Or(difference == 0, difference == self.NUM_USERS))
+            self.constraints.append(self.alphas[t] < self.alphas[t + 1])
 
     def demands_are_bdd(self):
         for i in range(len(self.org_demands)):
@@ -153,22 +141,16 @@ class State:
                     )
                 )
 
-    def consumed_are_mono_inc(self):
-        for j in range(self.NUM_RESOURCES):
-            for t in range(self.NUM_TIMESTEPS):
-                self.constraints.append(self.consumed[t][j] <= self.consumed[t + 1][j])
-
     def no_overallocation_constraints(self):
         for t in range(self.NUM_TIMESTEPS + 1):
             for j in range(self.NUM_RESOURCES):
                 consumed_expr = sum(
-                    self.alphas[t][i] * self.normalized_demands[i][j]
+                    self.alphas[t] * self.normalized_demands[i][j]
                     for i in range(self.NUM_USERS)
                 )
                 self.constraints.append(self.consumed[t][j] == consumed_expr)
                 self.constraints.append(self.consumed[t][j] <= 1.0)
-                if t > 0:
-                    self.constraints.append(self.resources[t][j] == 1 - consumed_expr)
+                self.constraints.append(self.resources[t][j] == 1 - consumed_expr)
 
     def define_dominant_shares(self):
         for i in range(self.NUM_USERS):
@@ -205,15 +187,3 @@ class State:
                     for j in range(self.NUM_RESOURCES)
                 ]
             )
-
-
-"""
-state:
-Time-invariant: 
-    * DONE: User.demands: (n x m) ... d_i in [0,1] and dominant share
-Change with time:
-    * DONE: resource[t]: 1 --> 0 ... should be mono decreasing
-    * DONE: User.Allocations[t][userId]
-    * min dominant share = min(alpha_i * D_i)
-
-"""
