@@ -1,6 +1,7 @@
 from z3 import *
 from drf_utils.model import *
 
+
 """
 Bounded Model Checking:
 - Express invariants in temporal logic
@@ -54,6 +55,107 @@ def DRF_Algorithm(state):
 """
 
 
+def alphas_are_positive_and_strictly_monotonic(alphas, state: State):
+    constraints = []
+    for t, alpha in enumerate(alphas):
+        constraints.append((alpha == 0) if (t == 0) else (0 <= alpha))
+    for t in range(len(alphas) - 1):
+        constraints.append(alphas[t] < alphas[t + 1])
+    return constraints
+
+
+def define_dominant_shares(dominant_shares_indices, unscaled_max_shared, state: State):
+    constraints = []
+    for i in range(state.NUM_USERS):
+        constraints.append(
+            And(
+                dominant_shares_indices[i] >= 0,
+                dominant_shares_indices[i] < state.NUM_RESOURCES,
+            )
+        )
+
+        for j in range(state.NUM_RESOURCES):
+            comparisons = [
+                state.org_demands[i][j] >= state.org_demands[i][j2]
+                for j2 in range(state.NUM_RESOURCES)
+            ]
+
+            constraints.append(
+                Implies(
+                    dominant_shares_indices[i] == j,
+                    And(
+                        unscaled_max_shared[i] == state.org_demands[i][j],
+                        *comparisons,
+                    ),
+                )
+            )
+    return constraints
+
+
+def define_normalized_demands(epsilon, unscaled_max_shared, normalized_demands, state):
+    constraints = []
+    for i in range(state.NUM_USERS):
+        scale = epsilon / unscaled_max_shared[i]
+        constraints.extend(
+            [
+                And(
+                    normalized_demands[i][j] == scale * state.org_demands[i][j],
+                    normalized_demands[i][j] > 0,
+                    normalized_demands[i][j] <= epsilon,
+                )
+                for j in range(state.NUM_RESOURCES)
+            ]
+        )
+    return constraints
+
+
+def no_overallocation_constraints(alphas, normalized_demands, state):
+    constraints = []
+    for t in range(state.NUM_TIMESTEPS + 1):
+        for j in range(state.NUM_RESOURCES):
+            consumed_expr = sum(
+                alphas[t] * normalized_demands[i][j] for i in range(state.NUM_USERS)
+            )
+            constraints.append(state.consumed[t][j] == consumed_expr)
+    return constraints
+
+
+def drf_progressive_filling(state):
+    # User utilities -- Common among all users in progressive filling
+    constraints = []
+    epsilon = Real(f"epsilon")
+    alphas = [Int(f"alpha[t = {t}]") for t in range(state.NUM_TIMESTEPS + 1)]
+
+    normalized_demands = [
+        [
+            Real(f"demand_scaled[userId = {i}][resource = {j}]")
+            for j in range(state.NUM_RESOURCES)
+        ]
+        for i in range(state.NUM_USERS)
+    ]
+
+    dominant_shares_indices = [Int(f"s_{i}_indx") for i in range(state.NUM_USERS)]
+    unscaled_max_shared = [Real(f"s_{i}_unscaled") for i in range(state.NUM_USERS)]
+
+    constraints.append(And(epsilon > 0.0, epsilon <= 1.0))
+    constraints.extend(alphas_are_positive_and_strictly_monotonic(alphas, state))
+    constraints.extend(
+        define_dominant_shares(dominant_shares_indices, unscaled_max_shared, state)
+    )
+    constraints.extend(
+        define_normalized_demands(
+            epsilon, unscaled_max_shared, normalized_demands, state
+        )
+    )
+    constraints.extend(no_overallocation_constraints(alphas, normalized_demands, state))
+
+    return constraints, {
+        "alphas": alphas,
+        "normalized_demands": normalized_demands,
+        "epsilon": epsilon,
+    }
+
+
 # NOTE: We guarantee after T timesteps you reach a terminal state.
 # This ensures the algorithm steps
 def check_sat_helper(s: Solver, fn: str, T: int, U: int, R: int):
@@ -82,7 +184,9 @@ def check_sat(s: Solver, fn: str, T: int, U: int, R: int, verbose=True):
 def each_user_saturated_resource_DRF(T=5, U=2, R=2, verbose=True):
     s = Solver()
     state = State(T, U, R)
+    drf_constraints, vars = drf_progressive_filling(state)
     s.add(state.constraints)
+    s.add(drf_constraints)
 
     # terminal --> forall i, exists j, sat(i, j)
     # Contradiction --> exists i, forall j, unsat(i, j)
@@ -93,8 +197,8 @@ def each_user_saturated_resource_DRF(T=5, U=2, R=2, verbose=True):
             # change user i to (alpha_i + 1). Keep other users the same.
             # Show how this overconsumes resources
             consumed_expr = sum(
-                (state.alphas[state.NUM_TIMESTEPS] + If(i2 == i, 1, 0))
-                * state.normalized_demands[i2][j]
+                (vars["alphas"][state.NUM_TIMESTEPS] + If(i2 == i, 1, 0))
+                * vars["normalized_demands"][i2][j]
                 for i2 in range(state.NUM_USERS)
             )
 
@@ -117,23 +221,25 @@ def test_each_user_saturated_resource_DRF():
 def drf_pareto_efficient(T=2, U=2, R=2, verbose=True):
     s = Solver()
     state = State(T, U, R)
+    drf_constraints, vars = drf_progressive_filling(state)
     s.add(state.constraints)
+    s.add(drf_constraints)
 
     new_alphas = [Int(f"alpha_new[t = {T}][i = {i}]") for i in range(state.NUM_USERS)]
     for i in range(state.NUM_USERS):
         # Add all new alloc constraints: chosen user improves. remainin users at least as good
         for i2 in range(state.NUM_USERS):
             constraint = (
-                new_alphas[i] > state.alphas[T]
+                new_alphas[i] > vars["alphas"][T]
                 if i == i2
-                else new_alphas[i2] >= state.alphas[T]
+                else new_alphas[i2] >= vars["alphas"][T]
             )
             s.add(constraint)
 
         all_unsaturated = True
         for j in range(state.NUM_RESOURCES):
             consumed_expr = sum(
-                (new_alphas[i2]) * state.normalized_demands[i2][j]
+                (new_alphas[i2]) * vars["normalized_demands"][i2][j]
                 for i2 in range(state.NUM_USERS)
             )
 
@@ -154,7 +260,9 @@ def test_drf_pareto_efficient():
 def drf_envy_free(T=2, U=2, R=2, verbose=True):
     s = Solver()
     state = State(T, U, R)
+    drf_constraints, vars = drf_progressive_filling(state)
     s.add(state.constraints)
+    s.add(drf_constraints)
 
     # User i envys user j
     def envy_condition(i, i2):
@@ -162,8 +270,14 @@ def drf_envy_free(T=2, U=2, R=2, verbose=True):
         for j in range(state.NUM_RESOURCES):
             # If user i wants resource r, then user j must have strictly more of it than user i
             conditions.append(
-                (state.alphas[state.NUM_TIMESTEPS] * state.normalized_demands[i2][j])
-                > (state.alphas[state.NUM_TIMESTEPS] * state.normalized_demands[i][j])
+                (
+                    vars["alphas"][state.NUM_TIMESTEPS]
+                    * vars["normalized_demands"][i2][j]
+                )
+                > (
+                    vars["alphas"][state.NUM_TIMESTEPS]
+                    * vars["normalized_demands"][i][j]
+                )
             )
         return And(conditions)
 
@@ -172,13 +286,6 @@ def drf_envy_free(T=2, U=2, R=2, verbose=True):
         for userJ in range(state.NUM_USERS):
             if userI != userJ:
                 envy = envy_condition(userI, userJ)
-                s.add(
-                    Implies(
-                        envy,
-                        (state.alphas[state.NUM_TIMESTEPS][userJ])
-                        == (state.alphas[state.NUM_TIMESTEPS][userI]),
-                    )
-                )
                 exists_envy = Or(exists_envy, envy)
 
     s.add(exists_envy)
@@ -200,11 +307,15 @@ def drf_sharing_incentive(T=2, U=2, R=2, verbose=True):
     s = Solver()
     state = State(T, U, R)
     s.add(state.constraints)
+    drf_constraints, vars = drf_progressive_filling(state)
+    s.add(state.constraints)
+    s.add(drf_constraints)
+
     # show forall i. s_i >= 1/n
     exists_bad_sharing = False
 
     for i in range(state.NUM_USERS):
-        dominant_share = state.alphas[state.NUM_TIMESTEPS] * state.epsilon
+        dominant_share = vars["alphas"][state.NUM_TIMESTEPS] * vars["epsilon"]
         bad_alloc = dominant_share < (1 / state.NUM_USERS)
         exists_bad_sharing = Or(exists_bad_sharing, bad_alloc)
     s.add(exists_bad_sharing)
@@ -223,7 +334,9 @@ def test_drf_sharing_incentive():
 def drf_strategy_proof(T=2, U=2, R=2, verbose=True):
     s = Solver()
     state = State(T, U, R)
+    drf_constraints, vars = drf_progressive_filling(state)
     s.add(state.constraints)
+    s.add(drf_constraints)
 
     # TODO: determine property given a user. show it doesnt work for any user
     lying_wins = False
@@ -268,7 +381,7 @@ def drf_strategy_proof(T=2, U=2, R=2, verbose=True):
         index_is_max = And(*index_is_max)
 
         # Get scaled demand vector
-        scale = state.epsilon / new_dom_share
+        scale = vars["epsilon"] / new_dom_share
         normalized_is_normalized = And(
             *[
                 normalized_new_demand[j] == scale * unscaled_new_demand[j]
@@ -279,7 +392,7 @@ def drf_strategy_proof(T=2, U=2, R=2, verbose=True):
         # New normalized is better
         lying_is_better = And(
             *[
-                normalized_new_demand[j] > state.normalized_demands[i][j]
+                normalized_new_demand[j] > vars["normalized_demands"][i][j]
                 for j in range(state.NUM_RESOURCES)
             ]
         )
@@ -309,10 +422,12 @@ def test_drf_strategy_proof():
 
 
 def drf_paper_example():
-    st = State(6, 2, 2, [["1/9", "4/18"], ["3/9", "1/18"]])
+    state = State(6, 2, 2, [["1/9", "4/18"], ["3/9", "1/18"]])
     s = Solver()
     print("Adding Constraints")
-    s.add(st.constraints)
+    drf_constraints, vars = drf_progressive_filling(state)
+    s.add(state.constraints)
+    s.add(drf_constraints)
     print("Checking")
     res = s.check()
     print(f"example 1 {res}")
