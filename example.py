@@ -56,8 +56,6 @@ def DRF_Algorithm(state):
 
 # NOTE: We guarantee after T timesteps you reach a terminal state.
 # This ensures the algorithm steps
-
-
 def check_sat_helper(s: Solver, fn: str, T: int, U: int, R: int):
     res = s.check()
     if res == sat:
@@ -85,8 +83,6 @@ def each_user_saturated_resource_DRF(T=5, U=2, R=2, verbose=True):
     s = Solver()
     state = State(T, U, R)
     s.add(state.constraints)
-    # s.add(all_allocations(state, drf_algorithm_constraints))
-    # s.add(state.terminal == True)
 
     # terminal --> forall i, exists j, sat(i, j)
     # Contradiction --> exists i, forall j, unsat(i, j)
@@ -122,8 +118,6 @@ def drf_pareto_efficient(T=2, U=2, R=2, verbose=True):
     s = Solver()
     state = State(T, U, R)
     s.add(state.constraints)
-    # s.add(all_allocations(state, drf_algorithm_constraints))
-    # s.add(state.terminal == True)
 
     new_alphas = [Int(f"alpha_new[t = {T}][i = {i}]") for i in range(state.NUM_USERS)]
     for i in range(state.NUM_USERS):
@@ -161,8 +155,6 @@ def drf_envy_free(T=2, U=2, R=2, verbose=True):
     s = Solver()
     state = State(T, U, R)
     s.add(state.constraints)
-    # s.add(all_allocations(state, drf_algorithm_constraints))
-    # s.add(state.terminal == True)
 
     # User i envys user j
     def envy_condition(i, i2):
@@ -208,27 +200,8 @@ def drf_sharing_incentive(T=2, U=2, R=2, verbose=True):
     s = Solver()
     state = State(T, U, R)
     s.add(state.constraints)
-    # s.add(all_allocations(state, drf_algorithm_constraints))
-    # s.add(state.terminal == True)
-
     # show forall i. s_i >= 1/n
-    """
-    3/8, 3/8
-    """
     exists_bad_sharing = False
-
-    # all same dominant share --> should get 1/n resource
-    common_share_indx = Int("common_share_indx")
-    common_dominant_share = Real("common_dom_share")
-    s.add(And(common_share_indx >= 0, common_share_indx < state.NUM_RESOURCES))
-    s.add(common_dominant_share == 1 / state.NUM_USERS)
-    all_equal = And(
-        *[
-            state.dominant_shares_indices[i] == common_share_indx
-            for i in range(state.NUM_USERS)
-        ]
-    )
-    s.add(common_dominant_share == (state.alphas[state.NUM_TIMESTEPS] * state.epsilon))
 
     for i in range(state.NUM_USERS):
         dominant_share = state.alphas[state.NUM_TIMESTEPS] * state.epsilon
@@ -242,8 +215,6 @@ def drf_strategy_proof(T, U, R):
     s = Solver()
     state = State(T, U, R)
     s.add(state.constraints)
-    s.add(all_allocations(state, drf_algorithm_constraints))
-    s.add(state.terminal == True)
 
 
 def drf_paper_example():
@@ -251,24 +222,6 @@ def drf_paper_example():
     s = Solver()
     print("Adding Constraints")
     s.add(st.constraints)
-    s.add(all_allocations(st, drf_algorithm_constraints))
-    "Add required state transitions"
-    # s.add(st.epsilon == RealVal("2/7"))
-    # s.add(st.alphas[0][0] == 0)
-    # s.add(st.alphas[0][1] == 0)
-    # s.add(st.alphas[1][0] == 0)
-    # s.add(st.alphas[1][1] == 1)
-    # s.add(st.alphas[2][0] == 1)
-    # s.add(st.alphas[2][1] == 1)
-    # s.add(st.alphas[3][0] == 1)
-    # s.add(st.alphas[3][1] == 2)
-    # s.add(st.alphas[4][0] == 2)
-    # s.add(st.alphas[4][1] == 2)
-    # s.add(st.alphas[5][0] == 3)
-    # s.add(st.alphas[5][1] == 2)
-    # s.add(st.alphas[6][0] == 3)
-    # s.add(st.alphas[6][1] == 2)
-
     print("Checking")
     res = s.check()
     print(f"example 1 {res}")
