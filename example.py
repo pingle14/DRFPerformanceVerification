@@ -55,10 +55,11 @@ def DRF_Algorithm(state):
 """
 
 
-def alphas_are_positive_and_strictly_monotonic(alphas, state: State):
+def alphas_nonneg_and_strictly_monotonic(alphas, state: State):
     constraints = []
     for t, alpha in enumerate(alphas):
         constraints.append((alpha == 0) if (t == 0) else (0 <= alpha))
+        # constraints.append(alpha == t)  # For paper example to get epsilon = 1/9
     for t in range(len(alphas) - 1):
         constraints.append(alphas[t] < alphas[t + 1])
     return constraints
@@ -92,16 +93,16 @@ def define_dominant_shares(dominant_shares_indices, unscaled_max_shared, state: 
     return constraints
 
 
-def define_normalized_demands(epsilon, unscaled_max_shared, normalized_demands, state):
+def define_scaled_demands(epsilon, unscaled_max_shared, scaled_demands, state):
     constraints = []
     for i in range(state.NUM_USERS):
         scale = epsilon / unscaled_max_shared[i]
         constraints.extend(
             [
                 And(
-                    normalized_demands[i][j] == scale * state.org_demands[i][j],
-                    normalized_demands[i][j] > 0,
-                    normalized_demands[i][j] <= epsilon,
+                    scaled_demands[i][j] == scale * state.org_demands[i][j],
+                    scaled_demands[i][j] > 0,
+                    scaled_demands[i][j] <= epsilon,
                 )
                 for j in range(state.NUM_RESOURCES)
             ]
@@ -109,12 +110,12 @@ def define_normalized_demands(epsilon, unscaled_max_shared, normalized_demands, 
     return constraints
 
 
-def no_overallocation_constraints(alphas, normalized_demands, state):
+def no_overallocation_constraints(alphas, scaled_demands, state):
     constraints = []
     for t in range(state.NUM_TIMESTEPS + 1):
         for j in range(state.NUM_RESOURCES):
             consumed_expr = sum(
-                alphas[t] * normalized_demands[i][j] for i in range(state.NUM_USERS)
+                alphas[t] * scaled_demands[i][j] for i in range(state.NUM_USERS)
             )
             constraints.append(state.consumed[t][j] == consumed_expr)
     return constraints
@@ -126,7 +127,7 @@ def drf_progressive_filling(state):
     epsilon = Real(f"epsilon")
     alphas = [Int(f"alpha[t = {t}]") for t in range(state.NUM_TIMESTEPS + 1)]
 
-    normalized_demands = [
+    scaled_demands = [
         [
             Real(f"demand_scaled[userId = {i}][resource = {j}]")
             for j in range(state.NUM_RESOURCES)
@@ -138,20 +139,18 @@ def drf_progressive_filling(state):
     unscaled_max_shared = [Real(f"s_{i}_unscaled") for i in range(state.NUM_USERS)]
 
     constraints.append(And(epsilon > 0.0, epsilon <= 1.0))
-    constraints.extend(alphas_are_positive_and_strictly_monotonic(alphas, state))
+    constraints.extend(alphas_nonneg_and_strictly_monotonic(alphas, state))
     constraints.extend(
         define_dominant_shares(dominant_shares_indices, unscaled_max_shared, state)
     )
     constraints.extend(
-        define_normalized_demands(
-            epsilon, unscaled_max_shared, normalized_demands, state
-        )
+        define_scaled_demands(epsilon, unscaled_max_shared, scaled_demands, state)
     )
-    constraints.extend(no_overallocation_constraints(alphas, normalized_demands, state))
+    constraints.extend(no_overallocation_constraints(alphas, scaled_demands, state))
 
     return constraints, {
         "alphas": alphas,
-        "normalized_demands": normalized_demands,
+        "scaled_demands": scaled_demands,
         "epsilon": epsilon,
     }
 
@@ -198,7 +197,7 @@ def each_user_saturated_resource_DRF(T=5, U=2, R=2, verbose=True):
             # Show how this overconsumes resources
             consumed_expr = sum(
                 (vars["alphas"][state.NUM_TIMESTEPS] + If(i2 == i, 1, 0))
-                * vars["normalized_demands"][i2][j]
+                * vars["scaled_demands"][i2][j]
                 for i2 in range(state.NUM_USERS)
             )
 
@@ -239,7 +238,7 @@ def drf_pareto_efficient(T=2, U=2, R=2, verbose=True):
         all_unsaturated = True
         for j in range(state.NUM_RESOURCES):
             consumed_expr = sum(
-                (new_alphas[i2]) * vars["normalized_demands"][i2][j]
+                (new_alphas[i2]) * vars["scaled_demands"][i2][j]
                 for i2 in range(state.NUM_USERS)
             )
 
@@ -270,14 +269,8 @@ def drf_envy_free(T=2, U=2, R=2, verbose=True):
         for j in range(state.NUM_RESOURCES):
             # If user i wants resource r, then user j must have strictly more of it than user i
             conditions.append(
-                (
-                    vars["alphas"][state.NUM_TIMESTEPS]
-                    * vars["normalized_demands"][i2][j]
-                )
-                > (
-                    vars["alphas"][state.NUM_TIMESTEPS]
-                    * vars["normalized_demands"][i][j]
-                )
+                (vars["alphas"][state.NUM_TIMESTEPS] * vars["scaled_demands"][i2][j])
+                > (vars["alphas"][state.NUM_TIMESTEPS] * vars["scaled_demands"][i][j])
             )
         return And(conditions)
 
@@ -392,7 +385,7 @@ def drf_strategy_proof(T=2, U=2, R=2, verbose=True):
         # New normalized is better
         lying_is_better = And(
             *[
-                normalized_new_demand[j] > vars["normalized_demands"][i][j]
+                normalized_new_demand[j] > vars["scaled_demands"][i][j]
                 for j in range(state.NUM_RESOURCES)
             ]
         )
@@ -441,9 +434,10 @@ def drf_paper_example():
                 f.write(str(e) + "\n")
 
 
-# drf_paper_example()
+drf_paper_example()
 test_each_user_saturated_resource_DRF()
 test_drf_pareto_efficient()
 test_drf_envy_free()
 test_drf_sharing_incentive()
 test_drf_strategy_proof()
+# drf_paper_example()
