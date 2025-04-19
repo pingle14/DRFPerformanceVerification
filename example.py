@@ -189,6 +189,7 @@ def each_user_saturated_resource_DRF(T=5, U=2, R=2, verbose=True):
 
     # terminal --> forall i, exists j, sat(i, j)
     # Contradiction --> exists i, forall j, unsat(i, j)
+    exists_unsat_user = False
     for i in range(state.NUM_USERS):
         # get dominant
         all_unsaturated = True
@@ -202,7 +203,8 @@ def each_user_saturated_resource_DRF(T=5, U=2, R=2, verbose=True):
             )
 
             all_unsaturated = And(all_unsaturated, consumed_expr <= 1.0)
-        s.add(all_unsaturated)  # Should yield unsat
+        exists_unsat_user = Or(exists_unsat_user, all_unsaturated)
+    s.add(exists_unsat_user)  # Should yield unsat
 
     return check_sat(s, "lemma8", T, U, R, verbose)
 
