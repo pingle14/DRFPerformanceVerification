@@ -331,71 +331,26 @@ def drf_strategy_proof(T=2, U=2, R=2, verbose=True):
     # TODO: determine property given a user. show it doesnt work for any user
     lying_wins = False
     for i in range(state.NUM_USERS):
-        unscaled_new_demand = [
-            Real(f"lie_D{i}{j}_unscaled") for j in range(state.NUM_RESOURCES)
-        ]
-        normalized_new_demand = [
-            Real(f"lie_D{i}{j}_scaled") for j in range(state.NUM_RESOURCES)
-        ]
-        new_dom_share_indx = Int(f"lie_s_{i}_indx")
-        new_dom_share = Int(f"lie_s_{i}")
-        unscaled_new_is_different = [
-            And(
-                unscaled_new_demand[j] != state.org_demands[i][j],
-                unscaled_new_demand[j] > 0.0,
-                unscaled_new_demand[j] <= 1.0,
-            )
-            for j in range(state.NUM_RESOURCES)
-        ]
-        unscaled_new_is_different = And(*unscaled_new_is_different)
-        new_dom_share_indx_is_bdd = And(
-            new_dom_share_indx >= 0,
-            new_dom_share_indx < state.NUM_RESOURCES,
-        )
-
-        # Get max dom share index
-        index_is_max = []
-        for j in range(state.NUM_RESOURCES):
-            comparisons = [
-                unscaled_new_demand[j] >= unscaled_new_demand[j2]
-                for j2 in range(state.NUM_RESOURCES)
-            ]
-
-            index_is_max.append(Implies(new_dom_share_indx == j, And(*comparisons)))
-            index_is_max.append(
-                Implies(
-                    new_dom_share_indx == j,
-                    new_dom_share == unscaled_new_demand[j],
+        lie_state = State(T, U, R)
+        for i in range(lie_state.NUM_USERS):
+            for j in range(lie_state.NUM_RESOURCES):
+                lie_state.constraints.append(
+                    And(
+                        lie_state.org_demands[i][j] != state.org_demands[i][j],
+                    )
                 )
-            )
-        index_is_max = And(*index_is_max)
+        lie_drf_constraints, lie_vars = drf_progressive_filling(lie_state)
 
-        # Get scaled demand vector
-        scale = vars["epsilon"] / new_dom_share
-        normalized_is_normalized = And(
-            *[
-                normalized_new_demand[j] == scale * unscaled_new_demand[j]
-                for j in range(state.NUM_RESOURCES)
-            ]
-        )
-
-        # New normalized is better
-        lying_is_better = And(
-            *[
-                normalized_new_demand[j] > vars["scaled_demands"][i][j]
-                for j in range(state.NUM_RESOURCES)
-            ]
-        )
+        # Check new allocation better than old allocation
+        user_i_lying_wins = True
+        for j in range(state.NUM_RESOURCES):
+            new_alloc = lie_vars["alphas"][T] * lie_vars["scaled_demands"][i][j]
+            old_alloc = vars["alphas"][T] * vars["scaled_demands"][i][j]
+            user_i_lying_wins = And(user_i_lying_wins, new_alloc > old_alloc)
 
         lying_wins = Or(
             lying_wins,
-            And(
-                unscaled_new_is_different,
-                new_dom_share_indx_is_bdd,
-                index_is_max,
-                normalized_is_normalized,
-                lying_is_better,
-            ),
+            And(*lie_state.constraints, *lie_drf_constraints, user_i_lying_wins),
         )
 
     s.add(lying_wins)
@@ -437,4 +392,3 @@ test_drf_pareto_efficient()
 test_drf_envy_free()
 test_drf_sharing_incentive()
 test_drf_strategy_proof()
-# drf_paper_example()
