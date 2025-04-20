@@ -306,12 +306,8 @@ def drf_sharing_incentive(T=2, U=2, R=2, verbose=True):
     s.add(drf_constraints)
 
     # show forall i. s_i >= 1/n
-    exists_bad_sharing = False
-
-    for i in range(state.NUM_USERS):
-        dominant_share = vars["alphas"][state.NUM_TIMESTEPS] * vars["epsilon"]
-        bad_alloc = dominant_share < (1 / state.NUM_USERS)
-        exists_bad_sharing = Or(exists_bad_sharing, bad_alloc)
+    dominant_share = vars["alphas"][state.NUM_TIMESTEPS] * vars["epsilon"]
+    exists_bad_sharing = dominant_share < (1 / state.NUM_USERS)
     s.add(exists_bad_sharing)
     return check_sat(s, "sharing_incentive", T, U, R, verbose)
 
