@@ -226,26 +226,25 @@ def drf_pareto_efficient(T=2, U=2, R=2, verbose=True):
     s.add(state.constraints)
     s.add(drf_constraints)
 
-    new_alphas = [Int(f"alpha_new[t = {T}][i = {i}]") for i in range(state.NUM_USERS)]
+    pareto_inefficient = False
     for i in range(state.NUM_USERS):
         # Add all new alloc constraints: chosen user improves. remainin users at least as good
-        for i2 in range(state.NUM_USERS):
-            constraint = (
-                new_alphas[i] > vars["alphas"][T]
-                if i == i2
-                else new_alphas[i2] >= vars["alphas"][T]
-            )
-            s.add(constraint)
+        new_alpha = Int(f"alpha_new[t = {T}][i = {i}]")
+        new_alpha_better = new_alpha > vars["alphas"][T]
 
         all_unsaturated = True
         for j in range(state.NUM_RESOURCES):
             consumed_expr = sum(
-                (new_alphas[i2]) * vars["scaled_demands"][i2][j]
+                (new_alpha if i == i2 else vars["alphas"][T])
+                * vars["scaled_demands"][i2][j]
                 for i2 in range(state.NUM_USERS)
             )
 
             all_unsaturated = And(all_unsaturated, consumed_expr <= 1.0)
-        s.add(all_unsaturated)  # Should yield unsat
+
+        user_i_pareto_inefficient = And(new_alpha_better, all_unsaturated)
+        pareto_inefficient = Or(pareto_inefficient, user_i_pareto_inefficient)
+    s.add(pareto_inefficient)
     return check_sat(s, "pareto", T, U, R, verbose)
 
 
